@@ -1,0 +1,1 @@
+Best width config: ('expanding', (32, 64, 128)) with test accuracy 0.9825
