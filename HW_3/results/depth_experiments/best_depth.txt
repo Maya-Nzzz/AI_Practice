@@ -1,0 +1,1 @@
+Best config: 3_layers_plain with test accuracy 0.9650
