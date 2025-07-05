@@ -1,0 +1,15 @@
+{
+    "input_dim": 20,
+    "output_dim": 2,
+    "layers": [
+        {"type": "linear", "size": 128},
+        {"type": "batch_norm"},
+        {"type": "relu"},
+        {"type": "linear", "size": 64},
+        {"type": "batch_norm"},
+        {"type": "relu"},
+        {"type": "linear", "size": 32},
+        {"type": "batch_norm"},
+        {"type": "relu"}
+    ]
+}

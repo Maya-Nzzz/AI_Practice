@@ -18,32 +18,6 @@ os.makedirs(PLOTS_PATH, exist_ok=True)
 os.makedirs(RESULTS_PATH, exist_ok=True)
 
 
-def get_data(test_size=0.2, n_samples=2000, n_features=20, n_classes=2, random_state=42):
-    """
-    Генерирует синтетические данные для задачи классификации и стандартизирует их.
-
-    Args:
-        test_size (float): Доля данных для теста.
-        n_samples (int): Количество выборок.
-        n_features (int): Количество признаков.
-        n_classes (int): Количество классов.
-        random_state (int): Фиксированное зерно генератора.
-
-    Returns:
-        Tuple[torch.Tensor]: Обучающие и тестовые данные (X_train, y_train, X_test, y_test).
-    """
-    # Создаем синтетический датасет
-    X, y = make_classification(n_samples=n_samples, n_features=n_features, n_classes=n_classes,
-                               n_informative=15, n_redundant=5, random_state=random_state)
-    # Разделяем на train/test
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
-    # Нормализация признаков
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
-
-    return (torch.tensor(X_train, dtype=torch.float32), torch.tensor(y_train, dtype=torch.long),
-            torch.tensor(X_test, dtype=torch.float32), torch.tensor(y_test, dtype=torch.long))
 
 
 def run_width_experiments():
