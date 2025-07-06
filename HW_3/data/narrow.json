@@ -1,0 +1,12 @@
+{
+    "input_dim": 20,
+    "output_dim": 2,
+    "layers": [
+        {"type": "linear", "size": 64},
+        {"type": "relu"},
+        {"type": "linear", "size": 32},
+        {"type": "relu"},
+        {"type": "linear", "size": 16},
+        {"type": "relu"}
+    ]
+}

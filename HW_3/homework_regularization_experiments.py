@@ -1,22 +1,13 @@
-import logging
-import time
 import torch
-import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.datasets import make_classification
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score
 import numpy as np
 import os
 import matplotlib.pyplot as plt
-import json
 
 from utils.experiment_utils import setup_experiment_logging, log_experiment_results, train_model
 from utils.visualization_utils import plot_training_history, count_parameters
 
-from utils.model_utils import FullyConnectedModel, create_model_from_config
+from utils.model_utils import create_model_from_config, prepare_classification_tensors
 
 RESULTS_PATH = "results/regularization_experiments"
 PLOTS_PATH = "plots/regularization_experiments"
@@ -24,21 +15,9 @@ os.makedirs(PLOTS_PATH, exist_ok=True)
 os.makedirs(RESULTS_PATH, exist_ok=True)
 
 
-def get_data(test_size=0.2, n_samples=2000, n_features=20, n_classes=2, random_state=42):
-    X, y = make_classification(n_samples=n_samples, n_features=n_features, n_classes=n_classes,
-                               n_informative=15, n_redundant=5, random_state=random_state)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
-    return (torch.tensor(X_train, dtype=torch.float32), torch.tensor(y_train, dtype=torch.long),
-            torch.tensor(X_test, dtype=torch.float32), torch.tensor(y_test, dtype=torch.long))
-
-
-
 def run_regularization_experiments():
     logger = setup_experiment_logging(RESULTS_PATH, "regularization_experiments")
-    X_train, y_train, X_test, y_test = get_data()
+    X_train, y_train, X_test, y_test = prepare_classification_tensors()
     train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=64, shuffle=True)
     test_loader = DataLoader(TensorDataset(X_test, y_test), batch_size=256)
 
@@ -68,7 +47,7 @@ def run_regularization_experiments():
         weights = torch.cat([p.data.flatten().cpu() for p in model.parameters() if p.requires_grad])
         plt.figure(figsize=(6, 4))
         plt.hist(weights.numpy(), bins=50)
-        plt.title(f"Weight distribution: {name}")
+        plt.title(f"Распределение весов: {name}")
         plt.savefig(f"{PLOTS_PATH}/{name}_weights.png")
         plt.close()
         logger.info(f"{name}: train_acc={history['train_accs'][-1]:.4f}, test_acc={history['train_accs'][-1]:.4f}")
@@ -79,7 +58,7 @@ def run_regularization_experiments():
 
 def adaptive_regularization():
     logger = setup_experiment_logging(RESULTS_PATH, "adaptive_regularization")
-    X_train, y_train, X_test, y_test = get_data()
+    X_train, y_train, X_test, y_test = prepare_classification_tensors()
     train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=64, shuffle=True)
     test_loader = DataLoader(TensorDataset(X_test, y_test), batch_size=256)
 
@@ -105,7 +84,7 @@ def adaptive_regularization():
     logger.info("Adaptive Dropout experiment")
     model = create_model_from_config(config_dict=adaptive_dropout_config)
     history = train_model(model, train_loader, test_loader, logger=logger)
-    plot_training_history(history, save_path=f"{PLOTS_PATH}/adaptive_dropout_curve.png", title="Adaptive Dropout")
+    plot_training_history(history, save_path=f"{PLOTS_PATH}/adaptive_dropout_curve.png", title="Адаптивная регуляризация")
 
     batchnorm_config = {
         "input_dim": 20,

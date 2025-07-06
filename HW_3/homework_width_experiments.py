@@ -1,15 +1,15 @@
 import time
+
 import torch
+from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.datasets import make_classification
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 import numpy as np
+import seaborn as sns
 import os
 
 from utils.experiment_utils import setup_experiment_logging, log_experiment_results, train_model
 from utils.visualization_utils import plot_training_history, plot_heatmap, count_parameters
-from utils.model_utils import FullyConnectedModel
+from utils.model_utils import FullyConnectedModel, prepare_classification_tensors, create_model_from_config
 
 # Пути для сохранения результатов и графиков
 RESULTS_PATH = "results/width_experiments"
@@ -18,32 +18,23 @@ os.makedirs(PLOTS_PATH, exist_ok=True)
 os.makedirs(RESULTS_PATH, exist_ok=True)
 
 
-
-
 def run_width_experiments():
     """
     Запускает эксперименты с разной шириной слоев сети (ширина скрытых слоев),
     логирует результаты, сохраняет графики и метрики.
     """
     logger = setup_experiment_logging(RESULTS_PATH, "width_experiments")
-    X_train, y_train, X_test, y_test = get_data()
+    X_train, y_train, X_test, y_test = prepare_classification_tensors()
     # Создаем DataLoader'ы
     train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=64, shuffle=True)
     test_loader = DataLoader(TensorDataset(X_test, y_test), batch_size=256)
 
-    # Конфигурации ширины скрытых слоев
-    widths = {
-        'narrow': [64, 32, 16],
-        'medium': [256, 128, 64],
-        'wide': [1024, 512, 256],
-        'very_wide': [2048, 1024, 512]
-    }
+    widths = ['narrow', 'medium', 'wide', 'very_wide']
 
     results = {}
-    for name, hidden in widths.items():
-        logger.info(f"Training model: {name} (hidden={hidden})")
-        # Загружаем модель из конфига
-        model = FullyConnectedModel(config_path='data/config_example.json')
+    for name in widths:
+        logger.info(f"Training model: {name}")
+        model = create_model_from_config(config_path=f'data/{name}.json')
         start = time.time()
         # Запускаем обучение
         history = train_model(model, train_loader, test_loader, logger=logger)
@@ -70,60 +61,84 @@ def run_width_experiments():
     np.savez(f"{RESULTS_PATH}/width_results.npz", **results)
 
 
-def optimize_architecture():
+def search_optimal_architecture():
     """
-    Проводит перебор архитектур по схемам (расширяющаяся, сужающаяся, постоянная ширина),
-    строит тепловые карты и сохраняет конфигурацию с лучшей точностью.
+    Проводит поиск оптимальной архитектуры по трём стратегиям:
+    - расширяющейся
+    - сужающейся
+    - с постоянной шириной
+
+    Строит тепловые карты результатов и сохраняет лучшую конфигурацию по итоговой тестовой точности.
     """
     logger = setup_experiment_logging(RESULTS_PATH, "width_gridsearch")
-    X_train, y_train, X_test, y_test = get_data()
+    X_train, y_train, X_test, y_test = prepare_classification_tensors()
     train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=64, shuffle=True)
     test_loader = DataLoader(TensorDataset(X_test, y_test), batch_size=256)
 
-    layer_sizes = [16, 32, 64, 128, 256]
+    strategies = ['expanding', 'shrinking', 'constant']
 
-    # Определение схем генерации конфигураций
-    schemes = {
-        'expanding': lambda: [(l, l * 2, l * 4) for l in layer_sizes if l * 4 <= 256],
-        'shrinking': lambda: [(l * 4, l * 2, l) for l in layer_sizes if l * 4 <= 256],
-        'constant': lambda: [(l, l, l) for l in layer_sizes]
-    }
+    # Задаём параметры сетки
+    layer_counts = [2, 3, 4]
+    base_sizes = [64, 128, 256]
 
-    all_results = {}
-    for scheme, gen in schemes.items():
-        for hidden in gen():
-            model = FullyConnectedModel(config_path='data/config_example.json')
-            history = train_model(model, train_loader, test_loader, logger=logger, epochs=10)
-            all_results[(scheme, hidden)] = history['test_accs'][-1]
+    best_acc = 0
+    best_config = None
+    results = {}
 
-    # Генерация тепловых карт по каждой схеме
-    for scheme in schemes:
-        data = np.zeros((len(layer_sizes), len(layer_sizes)))
-        for i, l1 in enumerate(layer_sizes):
-            for j, l2 in enumerate(layer_sizes):
-                # Проверяем, подходит ли конфигурация под схему
-                if scheme == 'expanding' and l2 == l1 * 2:
-                    hidden = (l1, l2, l2 * 2)
-                elif scheme == 'shrinking' and l1 == l2 * 2:
-                    hidden = (l1, l2, l2 // 2)
-                elif scheme == 'constant' and l1 == l2:
-                    hidden = (l1, l2, l2)
+    for strategy in strategies:
+        heatmap_data = np.zeros((len(layer_counts), len(base_sizes)))
+
+        for i, num_layers in enumerate(layer_counts):
+            for j, base_size in enumerate(base_sizes):
+                # Формируем список слоёв под стратегию
+                if strategy == 'expanding':
+                    sizes = [base_size * (l + 1) for l in range(num_layers)]
+                elif strategy == 'shrinking':
+                    sizes = [base_size * (num_layers - l) for l in range(num_layers)]
+                elif strategy == 'constant':
+                    sizes = [base_size] * num_layers
                 else:
                     continue
 
-                if (scheme, hidden) in all_results:
-                    data[i, j] = all_results[(scheme, hidden)]
+                # Составляем конфиг "на лету"
+                config = {
+                    "input_dim": X_train.shape[1],
+                    "output_dim": len(torch.unique(y_train)),
+                    "layers": []
+                }
+                for size in sizes:
+                    config["layers"].append({"type": "linear", "size": size})
+                    config["layers"].append({"type": "relu"})
 
-        plot_heatmap(data, x_labels=layer_sizes, y_labels=layer_sizes,
-                     save_path=f"{PLOTS_PATH}/width_heatmap_{scheme}.png", title=f"Grid Search {scheme}")
+                # Создаём модель
+                model = create_model_from_config(config_dict=config)
+                history = train_model(model, train_loader, test_loader, logger=logger, epochs=5)
 
-    # Поиск лучшей конфигурации
-    best = max(all_results.items(), key=lambda x: x[1])
-    logger.info(f"Best width config: {best[0]} with test accuracy {best[1]:.4f}")
-    with open(f"{RESULTS_PATH}/best_width.txt", "w") as f:
-        f.write(f"Best width config: {best[0]} with test accuracy {best[1]:.4f}\n")
+                final_acc = history['test_accs'][-1]
+                heatmap_data[i, j] = final_acc
+
+                # Сохраняем лучший результат
+                if final_acc > best_acc:
+                    best_acc = final_acc
+                    best_config = config
+
+        # Рисуем тепловую карту
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(heatmap_data, annot=True, xticklabels=base_sizes, yticklabels=layer_counts, cmap="viridis")
+        plt.title(f"Strategy: {strategy} (test acc)")
+        plt.xlabel("Base width")
+        plt.ylabel("Num layers")
+        plt.savefig(f"{PLOTS_PATH}/heatmap_{strategy}.png")
+        plt.close()
+
+        results[strategy] = heatmap_data
+
+    print("Best accuracy:", best_acc)
+    print("Best config:", best_config)
+
+    logger.info(f"Best architecture: {best_config} with test accuracy {best_config:.4f}")
 
 
 if __name__ == "__main__":
     run_width_experiments()
-    optimize_architecture()
+    search_optimal_architecture()
